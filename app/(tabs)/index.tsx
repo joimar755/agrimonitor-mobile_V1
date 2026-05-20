@@ -103,6 +103,22 @@ function StationCard({ station }: { station: any }) {
     </View>
   );
 }
+const API_BASE = "http://157.230.87.161:8000";
+
+type SensorReading = {
+  id: number;
+  temperatura: number;
+  humedad: number;
+  Ph: number;
+  estacion_id: number;
+  created_at: string;
+};
+
+function getStationStatus(temp: number, humAire: number, humSuelo: number) {
+  if (humSuelo < 25 || temp > 33 || humAire < 43) return "danger";
+  if (humSuelo < 35 || temp > 29 || humAire < 54) return "warn";
+  return "ok";
+}
 
 function DashboardTab({
   stations,
@@ -111,12 +127,57 @@ function DashboardTab({
   stations: any[];
   onRefresh: () => void;
 }) {
-  const avgTemp = (stations.reduce((a, s) => a + s.temp, 0) / 3).toFixed(1);
-  const avgHum = (stations.reduce((a, s) => a + s.humAire, 0) / 3).toFixed(1);
-  const avgSuelo = (stations.reduce((a, s) => a + s.humSuelo, 0) / 3).toFixed(
-    1,
-  );
-  const alerts = stations.filter((s) => s.status !== "ok").length;
+  const [sensorData, setSensorData] = useState<SensorReading | null>(null);
+
+  const fetchData = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/sensor-data/latest`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const json: SensorReading = await response.json();
+      setSensorData(json);
+    } catch (error) {
+      console.log("Error consumiendo API:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Datos reales del ESP32 si están disponibles, si no usar simulados
+  const liveStation = sensorData
+    ? {
+        name: "Estación A",
+        zona: "Central",
+        temp: sensorData.temperatura,
+        humAire: sensorData.humedad,
+        humSuelo: sensorData.Ph,
+        ph: sensorData.Ph,
+        status: getStationStatus(
+          sensorData.temperatura,
+          sensorData.humedad,
+          sensorData.Ph,
+        ),
+      }
+    : stations[0];
+
+  const displayStations = sensorData ? [liveStation] : stations;
+
+  const avgTemp = (
+    displayStations.reduce((a: number, s: any) => a + s.temp, 0) /
+    displayStations.length
+  ).toFixed(1);
+  const avgHum = (
+    displayStations.reduce((a: number, s: any) => a + s.humAire, 0) /
+    displayStations.length
+  ).toFixed(1);
+  const avgSuelo = (
+    displayStations.reduce((a: number, s: any) => a + s.humSuelo, 0) /
+    displayStations.length
+  ).toFixed(1);
+  const alerts = displayStations.filter((s: any) => s.status !== "ok").length;
 
   return (
     <ScrollView style={s.tabContent} showsVerticalScrollIndicator={false}>
@@ -130,9 +191,21 @@ function DashboardTab({
 
       <View style={s.metricsGrid}>
         {[
-          { label: "Temp. promedio", value: `${avgTemp} °C`, color: "#E24B4A" },
-          { label: "Humedad aire", value: `${avgHum} %`, color: "#378ADD" },
-          { label: "Humedad suelo", value: `${avgSuelo} %`, color: "#1D9E75" },
+          {
+            label: "Temperatura",
+            value: sensorData ? `${sensorData.temperatura} °C` : `${avgTemp} °C`,
+            color: "#E24B4A",
+          },
+          {
+            label: "Humedad aire",
+            value: sensorData ? `${sensorData.humedad} %` : `${avgHum} %`,
+            color: "#378ADD",
+          },
+          {
+            label: "Humedad suelo",
+            value: sensorData ? `${sensorData.Ph} %` : `${avgSuelo} %`,
+            color: "#1D9E75",
+          },
           {
             label: "Alertas activas",
             value: `${alerts}`,
@@ -146,7 +219,7 @@ function DashboardTab({
         ))}
       </View>
 
-      {stations.map((st, i) => (
+      {displayStations.map((st: any, i: number) => (
         <StationCard key={i} station={st} />
       ))}
     </ScrollView>
@@ -188,13 +261,10 @@ function YoloTab() {
 
       formData.append("file", blob, "photo.jpg");
 
-      const res = await fetch(
-        `https://e5af-152-201-175-182.ngrok-free.app/detect/ `,
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
+      const res = await fetch(`http://157.230.87.161/detect/ `, {
+        method: "POST",
+        body: formData,
+      });
 
       const data = await res.json();
 
@@ -408,18 +478,15 @@ function ChatTab({ stations }: { stations: any[] }) {
       // Mostrar inmediatamente
       setMessages([...chat]);
 
-      const res = await fetch(
-        "https://e5af-152-201-175-182.ngrok-free.app/recomendaciones",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            pregunta: text,
-          }),
+      const res = await fetch("http://157.230.87.161/recomendaciones", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          pregunta: text,
+        }),
+      });
 
       if (!res.ok) {
         throw new Error(`HTTP error ${res.status}`);
@@ -656,14 +723,11 @@ function PredictTab() {
         rainfall: Number(rainfall),
       };
 
-      const res = await fetch(
-        "https://e5af-152-201-175-182.ngrok-free.app/predict",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
+      const res = await fetch("http://157.230.87.161/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -723,7 +787,7 @@ function PredictTab() {
         <TextInput
           style={s.formInput}
           keyboardType="numeric"
-          value={Number(temperature)}
+          value={String(temperature)}
           onChangeText={(t) => setTemperature(Number(t || 0))}
         />
       </View>
@@ -733,7 +797,7 @@ function PredictTab() {
         <TextInput
           style={s.formInput}
           keyboardType="numeric"
-          value={Number(humidity)}
+          value={String(humidity)}
           onChangeText={(t) => setHumidity(Number(t || 0))}
         />
       </View>
@@ -743,7 +807,7 @@ function PredictTab() {
         <TextInput
           style={s.formInput}
           keyboardType="numeric"
-          value={phFloat}
+          value={String(phFloat)}
           onChangeText={(t) => setPh(Number(t || 0))}
         />
       </View>
@@ -753,7 +817,7 @@ function PredictTab() {
         <TextInput
           style={s.formInput}
           keyboardType="numeric"
-          value={Number(rainfall)}
+          value={String(rainfall)}
           onChangeText={(t) => setRainfall(Number(t || 0))}
         />
       </View>
