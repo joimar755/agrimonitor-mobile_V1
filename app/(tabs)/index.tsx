@@ -193,7 +193,9 @@ function DashboardTab({
         {[
           {
             label: "Temperatura",
-            value: sensorData ? `${sensorData.temperatura} °C` : `${avgTemp} °C`,
+            value: sensorData
+              ? `${sensorData.temperatura} °C`
+              : `${avgTemp} °C`,
             color: "#E24B4A",
           },
           {
